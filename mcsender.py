@@ -167,9 +167,8 @@ class MorseCodeSender(threading.Thread):
         self.sample_buffer.extend(tmp_buffer)
 
     def _synthesize_silence(self, duration_in_msec):
-        """ Synthesize a tone for the specified duration and pitch frequency 
-            at the specified sample rate.  The tone envelope is shaped
-            to prevent clicks.
+        """ Synthesize silence for the specified duration at the specified
+            sample rate.
         """
         if duration_in_msec > 0.0:
             sample_count = int(float(self.sample_rate) * duration_in_msec * 0.001);
