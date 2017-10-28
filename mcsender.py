@@ -255,10 +255,7 @@ class MorseCodeSender(threading.Thread):
         """
         # Indicate that no audio is playing. 
         self.audio_finished_event.set()
-        # This check should not be necessary, but it cannot hurt.
-        if self.player:
-            self.player.finished_handler = None
-            self.player = None
+        self.player = None
 
     def _wait_for_player_to_complete(self):
         # Wait for the audio to complete.
