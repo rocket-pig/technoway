@@ -25,7 +25,6 @@
 
 import os
 import sys
-import time
 import threading
 from queue import Queue
 import math
