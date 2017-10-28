@@ -354,12 +354,9 @@ class MorseCodeSender(threading.Thread):
 
     def wait_for_audio_to_complete(self):
         """ Wait for all queued text to be played and
-            the audio to complete.
+            all audio to complete.
         """
-        # Wait for the queue to drain in the "run" method.
-        while not self.text_queue.empty():
-            time.sleep(0.1)
-        # Wait for the last queued audio to be processed.
+        # Wait for the text queue to drain in the "run" method.
         self.text_queue.join()
         # Wait for the last queued audio to complete.
         self._wait_for_player_to_complete()
@@ -376,7 +373,7 @@ class MorseCodeSender(threading.Thread):
             # "_audio_finished_handler" method to be called.
             # Unblock the _wait_for_player_to_complete method.
             self.audio_finished_event.set()
-        # Wait for the queue to drain in the "run" method.
+        # Wait for the text queue to drain in the "run" method.
         self.text_queue.join()
         # When the queue items are dumped, a race condition with
         # the self.dump_text_queue flag could allow a single text
