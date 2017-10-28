@@ -249,7 +249,6 @@ class MorseCodeSender(threading.Thread):
             print('Error creating audio file')
         if is_wave_open:
             wv.close()
-        self.sample_buffer = None
 
     def _audio_finished_handler(self):
         """ Set in the sound.Player instance to indicate audio has completed.
@@ -269,23 +268,15 @@ class MorseCodeSender(threading.Thread):
         """ Primary function convert the text to Morse code audio
             and to play the audio.
         """
-        # Free any existing bytearray object.
-        if self.sample_buffer:
-            self.sample_buffer = None
-        # Create a bytearray object to store the audio data.
         self.sample_buffer = bytearray()
-        # Convert the text to Morse code audio in a bytearray object.
         self._create_morse_code_audio(text)
-        # Create the Morse code audio file.
         self._create_wave_file()
+        self.sample_buffer = None
         # Play the Morse code audio file.
-        self.player = sound.Player(self.audio_file_name)
-        # Indicate that audio is playing. 
-        self.audio_finished_event.clear()
-        # The audio finished handler will set self.audio_finished_event
-        # when the audio has completed playing.
         self.player.finished_handler = self._audio_finished_handler
+        self.audio_finished_event.clear()
         self.player.play()
+        self.player = sound.Player(self.audio_file_name)
 
     def run(self):
         """ The Morse code sending thread. Read text from the text queue and
