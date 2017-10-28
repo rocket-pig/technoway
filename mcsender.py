@@ -270,10 +270,10 @@ class MorseCodeSender(threading.Thread):
         self._create_wave_file()
         self.sample_buffer = None
         # Play the Morse code audio file.
-        self.player.finished_handler = self._audio_finished_handler
         self.audio_finished_event.clear()
-        self.player.play()
         self.player = sound.Player(self.audio_file_name)
+        self.player.finished_handler = self._audio_finished_handler
+        self.player.play()
 
     def run(self):
         """ The Morse code sending thread. Read text from the text queue and
