@@ -5,7 +5,7 @@
     This file defines the MorseCodeSender class.
 
     Usage:
-        python morse_sender.py <text>
+        python mcsender.py <text>
     
     <text>  The text to be convered to Morse code. If no text is specified,
             then the text "Lorum Ipsum" is used.
