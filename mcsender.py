@@ -221,18 +221,24 @@ class MorseCodeSender(threading.Thread):
                     silence_count = 0
 
     def _create_wave_file(self):
-        """ Create a wave audio file with the specified data. """
+        """ Create an wave audio file thet contains the audio data in
+            bytearray 'self.sample_buffer'.
+        """
+        is_wave_open = False
         try:
-            with wave.open(self.audio_file_name, mode='wb') as wv
-                wv.setparams((1,  # 1 channel (mono)
-                              2,  # 2 bytes per sample * 1 channel
-                              self.sample_rate,
-                              0,  # Initial number of samples.
-                              'NONE',
-                              'not compressed'))
-                wv.writeframes(self.sample_buffer)
+            wv = wave.open(self.audio_file_name, mode='wb')
+            is_wave_open = True
+            wv.setparams((1,  # 1 channel (mono)
+                          2,  # 2 bytes per sample * 1 channel
+                          self.sample_rate,
+                          0,  # Initial number of samples.
+                          'NONE',
+                          'not compressed'))
+            wv.writeframes(self.sample_buffer)
         except:
             print('Error creating audio file')
+        if is_wave_open:
+            wv.close()
 
     def _audio_finished_handler(self):
         """ Set in the sound.Player instance to indicate audio has completed.
