@@ -220,35 +220,19 @@ class MorseCodeSender(threading.Thread):
                     self._synthesize_silence(silence_length * self.dot_time_in_msec)
                     silence_count = 0
 
-    @staticmethod
-    def _delete_file(file_name):
-        """ Delete a file. """
-        try:
-            os.remove(file_name)
-        except:
-            # The file did not exist.
-            pass
-
     def _create_wave_file(self):
         """ Create a wave audio file with the specified data. """
-        # If a wave file with the same name exists, then delete it.
-        MorseCodeSender._delete_file(self.audio_file_name)
-        # Create the wave file.
-        is_wave_open = False
         try:
-            wv = wave.open(self.audio_file_name, mode='wb')
-            is_wave_open = True
-            wv.setparams((1,  # 1 channel (mono)
-                          2,  # 2 bytes per sample * 1 channel
-                          self.sample_rate,
-                          0,  # Initial number of samples.
-                          'NONE',
-                          'not compressed'))
-            wv.writeframes(self.sample_buffer)
+            with wave.open(self.audio_file_name, mode='wb') as wv
+                wv.setparams((1,  # 1 channel (mono)
+                              2,  # 2 bytes per sample * 1 channel
+                              self.sample_rate,
+                              0,  # Initial number of samples.
+                              'NONE',
+                              'not compressed'))
+                wv.writeframes(self.sample_buffer)
         except:
             print('Error creating audio file')
-        if is_wave_open:
-            wv.close()
 
     def _audio_finished_handler(self):
         """ Set in the sound.Player instance to indicate audio has completed.
@@ -265,6 +249,7 @@ class MorseCodeSender(threading.Thread):
         """ Primary function convert the text to Morse code audio
             and to play the audio.
         """
+        # Create the Morse code audio file.
         self.sample_buffer = bytearray()
         self._create_morse_code_audio(text)
         self._create_wave_file()
@@ -363,7 +348,7 @@ class MorseCodeSender(threading.Thread):
         self.text_queue.join()
         # When the queue items are dumped, a race condition with
         # the self.dump_text_queue flag could allow a single text
-        # item to be processed, resulting in audio playing.
+        # item to be processed, resulting in audio to start playing.
         # In case that happens, stop audio again.
         if self.player:
             self.player.stop()
