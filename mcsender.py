@@ -40,7 +40,7 @@ class MorseCodeSender(threading.Thread):
     """
 
     # The characters '~' and '%' have no Morse code equivalent.  These characters
-    # have been added to the end of the Morse code dictionary to represent 'SK"
+    # have been added to the end of the Morse code dictionary to represent 'SK'
     # (end of message) and 'error' respectively.
     MORSE_SENDER_DICT = {
         'a' : '.-', 'b' : '-...', 'c' : '-.-.', 'd' : '-..', 
@@ -56,7 +56,7 @@ class MorseCodeSender(threading.Thread):
         '/' : '-..-.', '(' : '-.--.', ')' : '-.--.-', '"' : '.-..-.', 
         "'" : '.----.', ':' : '---...', ';' : '-.-.-.', 
         '@' : '.--.-.', '$' : '...-..-', '=' : '-...-', '+' : '.-.-.', 
-                         '~' : '.-.-.', '%' : '........' }
+        '~' : '...-.-', '%' : '........' }
 
     def __init__(self,
                  words_per_minute=15.0,
