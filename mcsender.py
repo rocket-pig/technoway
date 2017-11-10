@@ -22,11 +22,10 @@
         stop
         send
 """
-
 import os
 import sys
 import threading
-from queue import Queue
+import queue
 import math
 import wave
 try:
@@ -65,15 +64,18 @@ class MorseCodeSender(threading.Thread):
                  audio_file_name='morse.wav'):
         """ Initialize this MorseCodeSender class instance. """
         self.words_per_minute = words_per_minute
-        self.dot_time_in_msec = 1200.0 / self.words_per_minute
+        self.dot_time_in_msec = 0.0
+        # Set the dot time in milliseconds based on the
+        # sending speed.
+        self.set_words_per_minute(self.words_per_minute)
         self.tone_frequency = tone_frequency
         self.sample_rate = sample_rate
         self.sample_period = 1.0 / float(self.sample_rate)
-        self.alpha = MorseCodeSender._get_alpha(self.sample_rate)
-        self.one_minus_alpha = 1.0 - self.alpha
+        self.pulse_shaping_list = []
+        self._get_pulse_shaping_waveform()
         self.audio_file_name = audio_file_name
         self.sample_buffer = None
-        self.text_queue = Queue()
+        self.text_queue = queue.Queue()
         self.stop_and_clear_queue = False
         self.player = None
         self.audio_finished_event = threading.Event()
@@ -92,23 +94,27 @@ class MorseCodeSender(threading.Thread):
         self.shutdown()
 
     @staticmethod
-    def _get_alpha(sample_rate):
-        """ Set the tone envelope shaping parameter based on the sample rate.
-            When alpha is used in the following equation, the value of
-            'gain' starts at 0.0, and the equation is applied each sample,
-            then 'gain' will increase to 0.5 in 2 milliseconds of samples.
-                gain = (1.0 - alpha) + alpha * gain
-        """
-        alpha = 0.813900928542 + 0.0166631277223 * math.log(sample_rate)
-        return alpha
-
-    @staticmethod
     def _float_to_16_bit_sample(value):
         """ Convert a floating point value to a 16 bit signed value. """
         sample = int(32767.0 * value)
         byte0 = sample & 255
         byte1 = (sample >> 8) & 255
         return byte0, byte1
+
+    def _get_pulse_shaping_waveform(self):
+        """ Set the pulse shaping envelope based on the sample rate.
+            When this routine is called, self.pulse_shaping_list must
+            be an empty list.
+        """
+        alpha = 0.813900928542 + 0.0166631277223 * math.log(self.sample_rate)
+        one_minus_alpha = 1.0 - alpha
+        # Make the rise and fall times be 2 milliseconds.
+        rising_falling_count = int(float(self.sample_rate) * 0.002);
+        # 'half_gain' increases from 0.0 to 0.5 in 2 milliseconds of samples.
+        half_gain = 0.0
+        for i in range(0, rising_falling_count):
+            half_gain = one_minus_alpha + alpha * half_gain
+            self.pulse_shaping_list.append(2.0 * half_gain)
 
     def _synthesize_tone(self, duration_in_msec):
         """ Synthesize a tone for the specified duration and pitch frequency 
@@ -119,19 +125,12 @@ class MorseCodeSender(threading.Thread):
         # There are two bytes per 16-bit sample.
         tmp_buffer = bytearray(sample_count + sample_count)
         fscale = 2.0 * math.pi * self.tone_frequency * self.sample_period;
-        # Make the leading edge of the tone pulse rise for 2 milliseconds
-        # and the trailing edge fall for 2 milliseconds.
-        leading_trailing_sample_count = int(float(self.sample_rate) * 0.002);
-        middle_sample_count = sample_count - (2 * leading_trailing_sample_count)
         # Loop and create the audio samples.
         index = 0
         # Create the rising envelope part of the tone.
-        # Use the value of 'gain' to shape the tone envelope.
-        gain = 0.0
-        for i in range(0, leading_trailing_sample_count):
-            gain = self.one_minus_alpha + self.alpha * gain
+        for i, gain in enumerate(self.pulse_shaping_list):
             angle = float(i) * fscale
-            value = 2.0 * gain * math.sin(angle)
+            value = gain * math.sin(angle)
             byte0, byte1 = MorseCodeSender._float_to_16_bit_sample(value)
             # Write the bytes in little-endian order.
             tmp_buffer[index] = byte0
@@ -139,25 +138,22 @@ class MorseCodeSender(threading.Thread):
             index += 2
         # Create the level part of the tone. Start at the next
         # sample index so that the phase is a continuous function.
-        temp_count = leading_trailing_sample_count + middle_sample_count;
-        for i in range(leading_trailing_sample_count, temp_count):
-            angle = float(i) * fscale
+        rising_falling_count = len(self.pulse_shaping_list)
+        middle_sample_count = sample_count - (2 * rising_falling_count)
+        for i in range(0, middle_sample_count):
+            angle = float(i + rising_falling_count) * fscale
             value = math.sin(angle)
             byte0, byte1 = MorseCodeSender._float_to_16_bit_sample(value)
             # Write the bytes in little-endian order.
             tmp_buffer[index] = byte0
             tmp_buffer[index + 1] = byte1
             index += 2
-        # Create the decaying envelope part of the tone.
-        # Start at the next sample index so that the phase is a
-        # continuous function.
-        inv_gain = 0.0
-        new_temp_count = temp_count + leading_trailing_sample_count;
-        for i in range(temp_count, new_temp_count):
-            inv_gain = self.one_minus_alpha + self.alpha * inv_gain
-            gain = 0.5 - inv_gain
-            angle = float(i) * fscale
-            value = 2.0 * gain * math.sin(angle)
+        # Create the decaying part of the tone. Start at the next
+        # sample index so that the phase is a continuous function.
+        temp_count = rising_falling_count + middle_sample_count;
+        for i, rev_gain in enumerate(self.pulse_shaping_list):
+            angle = float(i + temp_count) * fscale
+            value = (1.0 - rev_gain) * math.sin(angle)
             byte0, byte1 = MorseCodeSender._float_to_16_bit_sample(value)
             # Write the bytes in little-endian order.
             tmp_buffer[index] = byte0
@@ -340,6 +336,9 @@ class MorseCodeSender(threading.Thread):
         # Write to the queue to unblock the call to Queue.get() in
         # the run method to allow the 'run' method to exit.
         self.text_queue.put('')
+        # Unblock the self._wait_for_player_to_complete() method
+        # in the run queue again.
+        self.audio_finished_event.set()
         # Wait for the 'run' thread to exit.
         self.join()
 
