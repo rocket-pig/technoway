@@ -74,7 +74,7 @@ class MorseCodeSender(threading.Thread):
         self.audio_file_name = audio_file_name
         self.sample_buffer = None
         self.text_queue = Queue()
-        self.dump_text_queue = False
+        self.stop_and_clear_queue = False
         self.player = None
         self.audio_finished_event = threading.Event()
         self.audio_thread_continue = True
@@ -272,15 +272,29 @@ class MorseCodeSender(threading.Thread):
             the threading.Thread class, should be treated as a private method.
         """
         while self.audio_thread_continue:
-            # Block in the "queue.Queue.get" method until text is written to
-            # the queue.
+            # Block in the "queue.Queue.get" method until text
+            # is written to the queue.
             text = self.text_queue.get(True)
-            try:
-                if text and not self.dump_text_queue:
-                    self._do_send(text)
-                    self._wait_for_player_to_complete()
-            finally:
+            if not self.stop_and_clear_queue:
+                try:
+                    if text:
+                        self._do_send(text)
+                        self._wait_for_player_to_complete()
+                finally:
+                    self.text_queue.task_done()
+            else:
                 self.text_queue.task_done()
+                # Stop audio from playing.
+                if self.player:
+                    self.player.stop()
+                    self.player = None
+                # Empty the text queue.
+                try:
+                    while True:
+                        self.text_queue.get(False)
+                        self.text_queue.task_done()
+                except queue.Empty:
+                    pass
 
     def get_words_per_minute(self):
         """ Returns the current sending speed. """
@@ -340,27 +354,22 @@ class MorseCodeSender(threading.Thread):
 
     def stop(self):
         """ Stop Morse code audio. """
-        # Disable text processing in the "run" method so
-        # that the text queue can drain and become empty.
-        self.dump_text_queue = True
-        # If there is an audio player, stop audio from playing.
-        if self.player:
-            self.player.stop()
-            # The player.stop method does not cause the
-            # "_audio_finished_handler" method to be called.
-            # Unblock the _wait_for_player_to_complete method.
-            self.audio_finished_event.set()
-        # Wait for the text queue to drain in the "run" method.
+        # Set a flag to stop audio and clear the queue.
+        self.stop_and_clear_queue = True
+        # Unblock the _wait_for_player_to_complete()
+        # in the "run" method.
+        self.audio_finished_event.set()
+        # It's possible that immediately after the audio
+        # finished event is set, the event cleared in "run"
+        # thread inside of the _do_send method. To synchronize
+        # the shutdown, send an empty test string to the
+        # queue and then set the audio finished event again.
+        self.text_queue.put('')
+        self.audio_finished_event.set()
+        # Wait for the text queue to become empty.
         self.text_queue.join()
-        # When the queue items are dumped, a race condition with
-        # the self.dump_text_queue flag could allow a single text
-        # item to be processed, resulting in audio to start playing.
-        # In case that happens, stop audio again.
-        if self.player:
-            self.player.stop()
-            self.audio_finished_event.set()
         # Enable text processing again.
-        self.dump_text_queue = False
+        self.stop_and_clear_queue = False
 
     def send(self, text):
         """ Queue text to be played. """
