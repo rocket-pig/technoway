@@ -106,15 +106,18 @@ class MorseCodeSender(threading.Thread):
             When this routine is called, self.pulse_shaping_list must
             be an empty list.
         """
-        alpha = 0.813900928542 + 0.0166631277223 * math.log(self.sample_rate)
-        one_minus_alpha = 1.0 - alpha
-        # Make the rise and fall times be 2 milliseconds.
-        rising_falling_count = int(float(self.sample_rate) * 0.002);
-        # 'half_gain' increases from 0.0 to 0.5 in 2 milliseconds of samples.
-        half_gain = 0.0
-        for i in range(0, rising_falling_count):
-            half_gain = one_minus_alpha + alpha * half_gain
-            self.pulse_shaping_list.append(2.0 * half_gain)
+        # Make the rise time be 3.3333% if the dot time.
+        rise_time_in_msec = 0.03333333333333 * self.dot_time_in_msec
+        # Limit the rise time to 2 milliseconds.
+        if rise_time_in_msec > 0.002:
+            rise_time_in_msec = 0.002
+        rising_falling_count = int(rise_time_in_msec * self.sample_rate)
+        step = math.pi / rising_falling_count
+        # The first value is zero, so skip that value.
+        # The last value is 1.0, so skip that value too.
+        for i in range(1, rising_falling_count - 1):
+            gain = 0.5 * (1.0 - math.cos(step * i))
+            self.pulse_shaping_list.append(gain)
 
     def _synthesize_tone(self, duration_in_msec):
         """ Synthesize a tone for the specified duration and pitch frequency 
