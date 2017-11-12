@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #=======================================================================
-# Copyright (C) 2013 William Hallahan
+# Copyright (C) 2017 William Hallahan
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation
