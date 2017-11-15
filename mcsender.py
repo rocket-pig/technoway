@@ -1,27 +1,4 @@
 #!/usr/bin/env python
-#=======================================================================
-# Copyright (C) 2017 William Hallahan
-#
-# Permission is hereby granted, free of charge, to any person
-# obtaining a copy of this software and associated documentation
-# files (the "Software"), to deal in the Software without restriction,
-# including without limitation the rights to use, copy, modify, merge,
-# publish, distribute, sublicense, and/or sell copies of the Software,
-# and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be
-# included in all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
-# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-# WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-# OTHER DEALINGS IN THE SOFTWARE.
-#=======================================================================
 """ mcsender.py
     Author: Bill Hallahan
 
@@ -88,24 +65,34 @@ class MorseCodeSender(threading.Thread):
         """ Initialize this MorseCodeSender class instance. """
         self.words_per_minute = words_per_minute
         self.dot_time_in_msec = 0.0
-        # Set the dot time in milliseconds based on the
-        # sending speed.
-        self.set_words_per_minute(self.words_per_minute)
         self.tone_frequency = tone_frequency
         self.sample_rate = sample_rate
         self.sample_period = 1.0 / float(self.sample_rate)
-        self.pulse_shaping_list = []
-        self._get_pulse_shaping_waveform()
         self.audio_file_name = audio_file_name
+        # Buffers to cache synthesized sample data.
+        self.pulse_shaping_list = []
+        self.dot_sample_buffer = None
+        self.dash_sample_buffer = None
+        self.silence_4_sample_buffer = None
+        self.silence_2_sample_buffer = None
+        self.silence_1_sample_buffer = None
+        # The main sample buffer.
         self.sample_buffer = None
+        # Text queue data.
         self.text_queue = queue.Queue()
         self.stop_and_clear_queue = False
+        # Set the dot time in milliseconds based on the sending speed.
+        self.set_words_per_minute(self.words_per_minute)
+        # Initialize the sample buffers.
+        self._cache_dot_dash_sample_data()
+        self._cache_silence_sample_data()
+        # Audio data.
         self.player = None
         self.audio_finished_event = threading.Event()
         self.audio_thread_continue = True
         threading.Thread.__init__(self)
-        # The inherited threading.start() methods calls the derived
-        # self.run() method in another thread.
+        # The inherited threading.start() methods calls the
+        # derived self.run() method in another thread.
         self.start()
 
     def __enter__(self):
@@ -125,10 +112,10 @@ class MorseCodeSender(threading.Thread):
         return byte0, byte1
 
     def _get_pulse_shaping_waveform(self):
-        """ Set the pulse shaping envelope based on the sample rate.
-            When this routine is called, self.pulse_shaping_list must
-            be an empty list.
+        """ Set the pulse shaping envelope based on the sample rate
+            and dot time.
         """
+        self.pulse_shaping_list = []
         # Make the rise time be 3.3333% if the dot time.
         rise_time_in_msec = 0.03333333333333 * self.dot_time_in_msec
         # Limit the rise time to 2 milliseconds.
@@ -143,11 +130,11 @@ class MorseCodeSender(threading.Thread):
             self.pulse_shaping_list.append(gain)
 
     def _synthesize_tone(self, duration_in_msec):
-        """ Synthesize a tone for the specified duration and pitch frequency 
-            at the specified sample rate.  The tone envelope is shaped
-            to prevent clicks.
+        """ Synthesize a tone pulse for the specified duration and the
+            specified pitch frequency at the specified sample rate.  The
+            tone envelope is shaped to prevent clicks.
         """
-        sample_count = int(float(self.sample_rate) * duration_in_msec * 0.001);
+        sample_count = int(float(self.sample_rate) * duration_in_msec * 0.001)
         # There are two bytes per 16-bit sample.
         tmp_buffer = bytearray(sample_count + sample_count)
         fscale = 2.0 * math.pi * self.tone_frequency * self.sample_period;
@@ -185,8 +172,7 @@ class MorseCodeSender(threading.Thread):
             tmp_buffer[index] = byte0
             tmp_buffer[index + 1] = byte1
             index += 2
-        # Add the synthesized audio to the sample buffer.
-        self.sample_buffer.extend(tmp_buffer)
+        return tmp_buffer
 
     def _synthesize_silence(self, duration_in_msec):
         """ Synthesize silence for the specified duration at the specified
@@ -201,11 +187,22 @@ class MorseCodeSender(threading.Thread):
             index = 0
             for i in range(0, byte_count):
                 tmp_buffer[i] = 0
-            # Add the synthesized audio to the sample buffer.
-            self.sample_buffer.extend(tmp_buffer)
+        return tmp_buffer
+
+    def _cache_dot_dash_sample_data(self):
+        """ Caches a dot tone pulse and a dash tone pulse. """
+        self._get_pulse_shaping_waveform()
+        self.dot_sample_buffer = self._synthesize_tone(self.dot_time_in_msec)
+        self.dash_sample_buffer = self._synthesize_tone(3.0 * self.dot_time_in_msec)
+
+    def _cache_silence_sample_data(self):
+        """ Caches silence data for three durations. """
+        self.silence_4_sample_buffer = self._synthesize_silence(4.0 * self.dot_time_in_msec)
+        self.silence_2_sample_buffer = self._synthesize_silence(2.0 * self.dot_time_in_msec)
+        self.silence_1_sample_buffer = self._synthesize_silence(self.dot_time_in_msec)
 
     def _create_morse_code_audio(self, text):
-        """ Create an audio byte array. """
+        """ Create an audio byte array for the passed text. """
         # The Morse-sender-dictionary letter keys are lower-case letters.
         lctext = text.lower()
         # Replace any newline characters with a space character.
@@ -220,17 +217,15 @@ class MorseCodeSender(threading.Thread):
                 for dotdash in code:
                     if dotdash == '.':
                         # The symbol is a dot.
-                        duration_in_msec = self.dot_time_in_msec
+                        self.sample_buffer.extend(self.dot_sample_buffer)
                     else:
                         # The symbol is a dash.
-                        duration_in_msec = 3.0 * self.dot_time_in_msec
-                    # Create a tone with the specified duration.
-                    self._synthesize_tone(duration_in_msec)
+                        self.sample_buffer.extend(self.dash_sample_buffer)
                     # After each dot or dash, add one dot-duration of silence.
-                    self._synthesize_silence(self.dot_time_in_msec)
+                    self.sample_buffer.extend(self.silence_1_sample_buffer)
                 # After each character, add 2 more dot-durations of silence
                 # resulting in three dot-durations of silence after a letter.
-                self._synthesize_silence(2.0 * self.dot_time_in_msec)
+                self.sample_buffer.extend(self.silence_2_sample_buffer)
                 silence_count = 3
             else:
                 # The letter is not in the Morse code dictionary. If the
@@ -239,11 +234,19 @@ class MorseCodeSender(threading.Thread):
                 # proper separation between words.
                 if c == ' ' or c == '\t':
                     silence_length = 7 - silence_count
-                    self._synthesize_silence(silence_length * self.dot_time_in_msec)
+                    if silence_length > 3:
+                        self.sample_buffer.extend(self.silence_4_sample_buffer)
+                        silence_length -= 4
+                    if silence_length > 1:
+                        self.sample_buffer.extend(self.silence_2_sample_buffer)
+                        silence_length -= 2
+                    if silence_length > 0:
+                        self.sample_buffer.extend(self.silence_1_sample_buffer)
+                        silence_length -= 1
                     silence_count = 0
 
     def _create_wave_file(self):
-        """ Create an wave audio file thet contains the audio data in
+        """ Create an wave audio file that contains the audio data in
             bytearray 'self.sample_buffer'.
         """
         is_wave_open = False
@@ -277,9 +280,10 @@ class MorseCodeSender(threading.Thread):
         """ Primary function convert the text to Morse code audio
             and to play the audio.
         """
-        # Create the Morse code audio file.
         self.sample_buffer = bytearray()
+        # Fill self.sample_buffer with audio samples.
         self._create_morse_code_audio(text)
+        # Write self.sample_buffer data to a wave audio file.
         self._create_wave_file()
         self.sample_buffer = None
         # Play the Morse code audio file.
@@ -330,6 +334,9 @@ class MorseCodeSender(threading.Thread):
         if is_valid_wpm:
             self.words_per_minute = words_per_minute
             self.dot_time_in_msec = 1200.0 / self.words_per_minute
+        # Synthesizes sample data for the current dot length.
+        self._cache_dot_dash_sample_data()
+        self._cache_silence_sample_data()
         return is_valid_wpm
 
     def get_tone_frequency(self):
@@ -344,6 +351,8 @@ class MorseCodeSender(threading.Thread):
             200.0 <= tone_frequency < (0.5 * float(self.sample_rate))
         if is_valid_tone_freq:
             self.tone_frequency = tone_frequency
+        # Synthesizes sample data for the current tone frequency.
+        self._cache_dot_dash_sample_data()
         return is_valid_tone_freq
 
     def shutdown(self):
