@@ -48,7 +48,7 @@
 import os
 import sys
 import threading
-import queue
+import Queue
 import math
 import wave
 try:
@@ -102,7 +102,7 @@ class MorseCodeSender(threading.Thread):
         # The main sample buffer.
         self.sample_buffer = None
         # Text queue data.
-        self.text_queue = queue.Queue()
+        self.text_queue = Queue.Queue()
         self.stop_and_clear_queue = False
         # Set the dot time in milliseconds based on the sending speed.
         self.set_words_per_minute(self.words_per_minute)
@@ -321,7 +321,7 @@ class MorseCodeSender(threading.Thread):
             the threading.Thread class, should be treated as a private method.
         """
         while self.audio_thread_continue:
-            # Block in the "queue.Queue.get" method until text
+            # Block in the "Queue.Queue.get" method until text
             # is written to the queue.
             text = self.text_queue.get(True)
             if not self.stop_and_clear_queue:
@@ -342,7 +342,7 @@ class MorseCodeSender(threading.Thread):
                     while True:
                         self.text_queue.get(False)
                         self.text_queue.task_done()
-                except queue.Empty:
+                except Queue.Empty:
                     pass
 
     def get_words_per_minute(self):
@@ -437,7 +437,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         text = sys.argv[1]
     else:
-        text = 'Lorum Ipsum'
+        text = 'hello world'
     # If you don't want to use a "with" statement, this works too.
     #     mcsender = MorseCodeSender()
     # In that case, you should call mcsender.shutdown() method when
